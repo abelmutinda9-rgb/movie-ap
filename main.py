@@ -1,17 +1,17 @@
 import os
 import traceback
+import asyncio
 from fastapi import FastAPI
-from moviebox_api.cli import MovieAuto
 from fastapi.middleware.cors import CORSMiddleware
+# Change the import to the base Client instead of the CLI
+from moviebox_api.client import MovieBoxClient 
 
 # --- STEP 2 MODIFIED: THE BRAIN ---
-# Ensure this matches your Cloudflare Worker URL EXACTLY (without https://)
 OS_HOST = "movie-shield.names.workers.dev" 
 os.environ["MOVIEBOX_API_HOST"] = OS_HOST
 
 app = FastAPI()
 
-# Allow Lovable/WebIntoApp to talk to this API
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -21,44 +21,39 @@ app.add_middleware(
 
 @app.get("/")
 async def root():
-    return {"status": "API is Live", "proxy_host": OS_HOST}
+    return {"status": "API is Live", "proxy": OS_HOST}
 
 @app.get("/search")
 async def search(q: str):
     try:
-        # Initialize the MovieBox engine
-        auto = MovieAuto()
+        # Using the Client directly is safer than the CLI 'MovieAuto'
+        client = MovieBoxClient()
         
-        # Search for the movie
-        result = await auto.run(q)
+        # Search for the movie/series
+        search_results = await client.search(q)
         
-        if result and hasattr(result, 'url'):
-            return {
-                "title": q,
-                "url": result.url,
-                "status": "success"
-            }
-        else:
-            return {
-                "title": q,
-                "url": None,
-                "message": "Movie found but no streaming URL available.",
-                "status": "not_found"
-            }
-            
-    except Exception as e:
-        # This prints the REAL error to your Render dashboard logs
-        print(f"ERROR OCCURRED: {str(e)}")
-        print(traceback.format_exc())
+        if not search_results or len(search_results) == 0:
+            return {"title": q, "url": None, "message": "No results found"}
+
+        # Get the first result's detail to get the download/stream link
+        first_item = search_results[0]
+        item_id = first_item.get('id')
+        
+        # Fetch the download/stream info
+        detail = await client.get_details(item_id)
         
         return {
-            "error": str(e),
-            "hint": "Check Render Logs for the full Traceback",
-            "status": "failed"
+            "title": first_item.get('name'),
+            "url": detail.get('download_url') or detail.get('stream_url'),
+            "status": "success"
         }
+            
+    except Exception as e:
+        print(f"ERROR: {str(e)}")
+        print(traceback.format_exc())
+        return {"error": str(e), "status": "failed"}
 
 if __name__ == "__main__":
     import uvicorn
-    # Render uses port 10000 by default
     uvicorn.run(app, host="0.0.0.0", port=10000)
     
