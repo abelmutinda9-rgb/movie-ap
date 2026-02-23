@@ -1,0 +1,4 @@
+moviebox-api
+fastapi
+uvicorn
+httpx
