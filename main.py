@@ -1,12 +1,12 @@
 import os
 import traceback
-import asyncio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-# Change the import to the base Client instead of the CLI
-from moviebox_api.client import MovieBoxClient 
+# Correct Import according to official documentation
+from moviebox_api import MovieAuto 
 
-# --- STEP 2 MODIFIED: THE BRAIN ---
+# --- STEP 2: THE BRAIN ---
+# Your Cloudflare Worker URL (ensure it matches exactly)
 OS_HOST = "movie-shield.names.workers.dev" 
 os.environ["MOVIEBOX_API_HOST"] = OS_HOST
 
@@ -26,27 +26,22 @@ async def root():
 @app.get("/search")
 async def search(q: str):
     try:
-        # Using the Client directly is safer than the CLI 'MovieAuto'
-        client = MovieBoxClient()
+        # MovieAuto is the main class for searching and getting links
+        auto = MovieAuto()
         
-        # Search for the movie/series
-        search_results = await client.search(q)
+        # This function searches and returns the best matching movie object
+        # Note: Depending on library version, this might be 'await auto.run(q)' 
+        # or just 'auto.run(q)'. We'll use the async version from docs.
+        result = await auto.run(q)
         
-        if not search_results or len(search_results) == 0:
-            return {"title": q, "url": None, "message": "No results found"}
-
-        # Get the first result's detail to get the download/stream link
-        first_item = search_results[0]
-        item_id = first_item.get('id')
-        
-        # Fetch the download/stream info
-        detail = await client.get_details(item_id)
-        
-        return {
-            "title": first_item.get('name'),
-            "url": detail.get('download_url') or detail.get('stream_url'),
-            "status": "success"
-        }
+        if result and hasattr(result, 'movie_file'):
+            return {
+                "title": q,
+                "url": result.movie_file.url if hasattr(result.movie_file, 'url') else "Link hidden",
+                "status": "success"
+            }
+        else:
+            return {"title": q, "url": None, "message": "Search completed, but no direct link found."}
             
     except Exception as e:
         print(f"ERROR: {str(e)}")
